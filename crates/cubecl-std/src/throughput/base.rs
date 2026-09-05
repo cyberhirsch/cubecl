@@ -65,10 +65,22 @@ fn working_set_cap<R: Runtime>(client: &ComputeClient<R>, access: MemoryAccess) 
 /// Computes the peak throughput for a given runtime and key.
 ///
 /// Native only, panics on WASM
+#[cfg_attr(target_family = "wasm", allow(unreachable_code))]
 pub fn measure_peak_throughput<R: Runtime>(
     client: &ComputeClient<R>,
     key: ThroughputKey,
 ) -> ThroughputValue {
+    // Every runner times its sample with `block_on(client.sync())`, and wasm
+    // cannot block - the attempt panics with "Failed to read tensor data
+    // synchronously". So on the web there is nothing to measure, and the
+    // honest answer is the one an unsupported feature already gives below:
+    // no operations and no duration, which reads back as an unknown rate.
+    #[cfg(target_family = "wasm")]
+    {
+        let _ = (client, &key);
+        return ThroughputValue::ZERO;
+    }
+
     // A throughput probe is a measurement: inside a dry run its launches must
     // still execute, or they would be timed anyway and cache a garbage peak in
     // the device-level throughput store. The guard is read where the launch is
