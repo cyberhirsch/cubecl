@@ -30,6 +30,14 @@ pub fn build_kernel<R: cubecl_runtime::runtime::Runtime>(
             )
             .expect("should succeed launch_overhead");
 
+        #[cfg(target_family = "wasm")]
+        {
+            // wasm cannot block on the profile future; the launch still
+            // happened, and an unmeasured overhead reads as zero.
+            let _ = duration;
+            return cubecl_common::profile::Duration::ZERO;
+        }
+        #[cfg(not(target_family = "wasm"))]
         cubecl_core::future::block_on(duration.into_future()).duration()
     });
 

@@ -46,8 +46,38 @@ impl ThroughputBenchmarker {
 
         let sample = kernel_config.sample;
 
-        let iterations = self.warmup(&sample);
-        let duration = self.sample_peak_duration(iterations, &sample);
+        // Sampling a kernel means blocking on a sync - every runner's sample
+        // closure ends in `block_on(client.sync())` - and wasm cannot block:
+        // the attempt panics out of cubecl-environment's reader with "Failed
+        // to read tensor data synchronously". So on the web there is no
+        // measuring to be done.
+        //
+        // Only the sampling is skipped, not the bookkeeping around it. The
+        // cache is still consulted above and still written below, because
+        // asking for a measurement is what brings the per-device throughput
+        // store - and the device service behind it - into existence. Cutting
+        // this call out higher up instead left that service uninitialized,
+        // and a later `utilities()` panicked with "Service not yet
+        // initialized - call init() before load()" once training reached its
+        // first refine.
+        //
+        // A zero duration reads back through `ops_per_s` as NaN, which is a
+        // rate that is unknown rather than one that is wrong.
+        #[cfg(target_family = "wasm")]
+        let duration = {
+            // One launch, not a measurement: the runners no longer block on
+            // wasm, so the kernel is submitted and the device services it
+            // touches come up in the same order they do on native - but there
+            // is nothing to time without a sync, so this reports no duration
+            // rather than a fabricated one.
+            let _ = sample(1);
+            Duration::ZERO
+        };
+        #[cfg(not(target_family = "wasm"))]
+        let duration = {
+            let iterations = self.warmup(&sample);
+            self.sample_peak_duration(iterations, &sample)
+        };
 
         let value = ThroughputValue {
             ops_count: kernel_config.ops_count,

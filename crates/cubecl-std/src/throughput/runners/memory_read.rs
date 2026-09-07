@@ -50,6 +50,11 @@ pub fn build_kernel<R: Runtime>(
                 dtype,
             )
         };
+        // Timing needs a blocking sync, and wasm cannot block. The launch
+        // above still happens, so whatever device services this kernel
+        // touches are created in the same order they are on native; only
+        // the wait for them is skipped, and the duration is meaningless.
+        #[cfg(not(target_family = "wasm"))]
         let _ = cubecl_core::future::block_on(client.sync());
         start.elapsed()
     });

@@ -37,13 +37,31 @@ impl<S: DeviceService> DeviceHandleSpec<S> for ReentrantMutexDeviceHandle<S> {
 
     fn utilities(&self) -> ServerUtilitiesHandle {
         let state = self.lock.lock.lock();
-        state
-            .map
-            .borrow()
-            .get(&TypeId::of::<S>())
-            .expect("Service not yet initialized — call init() before load()")
-            .utilities
-            .clone()
+        let map = state.map.borrow();
+        match map.get(&TypeId::of::<S>()) {
+            Some(entry) => entry.utilities.clone(),
+            None => {
+                let here = map.len();
+                core::mem::drop(map);
+                // Which devices the process actually registered, so a miss
+                // says whether the service is absent or the device is wrong.
+                let known: alloc::vec::Vec<DeviceId> = {
+                    let global = GLOBAL.lock();
+                    global
+                        .state
+                        .as_ref()
+                        .map(|s| s.states.keys().copied().collect())
+                        .unwrap_or_default()
+                };
+                panic!(
+                    "Service {} not initialized for device {:?} (that device holds {} service(s); registered devices: {:?})",
+                    core::any::type_name::<S>(),
+                    self.device_id,
+                    here,
+                    known,
+                )
+            }
+        }
     }
 
     fn flush_queue(&self) {}
